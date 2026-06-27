@@ -48,7 +48,7 @@ def check_attachments(filenames: list) -> dict:
             score += 30
             explanation.append(
                 f"Dangerous attachment detected: '{filename}' has a high-risk extension (.{ext_clean})"
-            )
+                )
 
     return {
         "dangerous_files": dangerous_files,
