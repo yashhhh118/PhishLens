@@ -1,3 +1,5 @@
+import re
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -74,3 +76,86 @@ def scan_url(request: UrlScanRequest):
         return result
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Gmail request model
+# ---------------------------------------------------------------------------
+class GmailRequest(BaseModel):
+    access_token: str
+    max_results: int = 20
+
+
+# ---------------------------------------------------------------------------
+# Gmail routes
+# ---------------------------------------------------------------------------
+@app.post("/gmail/fetch")
+def gmail_fetch(request: GmailRequest):
+    """
+    Fetch emails from the user's Gmail inbox.
+
+    Body fields:
+        access_token (str) — Google OAuth access token
+        max_results  (int) — number of emails to fetch (20, 50, or 100)
+    """
+    try:
+        from gmail.gmail_fetcher import fetch_emails
+
+        emails = fetch_emails(
+            access_token=request.access_token,
+            max_results=request.max_results,
+        )
+        return {"emails": emails}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/gmail/scan")
+def gmail_scan(request: GmailRequest):
+    """
+    Fetch emails and run phishing analysis on each one.
+
+    Body fields:
+        access_token (str) — Google OAuth access token
+        max_results  (int) — number of emails to fetch (20, 50, or 100)
+
+    Returns a list where each item contains the original email data
+    plus the analysis result under the key "analysis".
+    """
+    try:
+        from gmail.gmail_fetcher import fetch_emails
+
+        emails = fetch_emails(
+            access_token=request.access_token,
+            max_results=request.max_results,
+        )
+
+        results = []
+        for email in emails:
+            sender_domain = _extract_sender_domain(email.get("sender", ""))
+            analysis = analyze(
+                text=email.get("body", ""),
+                sender_domain=sender_domain,
+                attachments=email.get("attachments", []),
+            )
+            results.append({**email, "analysis": analysis})
+
+        return {"results": results}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+def _extract_sender_domain(sender: str) -> Optional[str]:
+    """
+    Extract the domain from a sender string.
+    Example: "John Doe <john@gmail.com>" → "gmail.com"
+             "john@gmail.com"             → "gmail.com"
+    """
+    if not sender:
+        return None
+    match = re.search(r"[\w.+-]+@([\w.-]+)", sender)
+    return match.group(1) if match else None
