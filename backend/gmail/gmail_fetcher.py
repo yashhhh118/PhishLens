@@ -1,7 +1,23 @@
 import base64
 import re
 from googleapiclient.discovery import build
-from google.oauth2.credentials import Credentials
+import google.auth.credentials
+
+
+class _StaticCredentials(google.auth.credentials.Credentials):
+    """Minimal credentials wrapper that holds a bare access token
+    and never attempts a refresh."""
+
+    def __init__(self, token):
+        super().__init__()
+        self.token = token
+
+    def refresh(self, request):
+        pass  # no-op: we only have an access token, no refresh token
+
+    @property
+    def valid(self):
+        return bool(self.token)
 
 
 def fetch_emails(access_token: str, max_results: int) -> list[dict]:
@@ -20,8 +36,8 @@ def fetch_emails(access_token: str, max_results: int) -> list[dict]:
         raise ValueError("max_results must be 20, 50, or 100")
 
     try:
-        # Build credentials and Gmail API service
-        credentials = Credentials(token=access_token)
+        # Use a static credential that skips refresh entirely
+        credentials = _StaticCredentials(token=access_token)
         service = build("gmail", "v1", credentials=credentials)
 
         # Fetch list of message IDs from inbox

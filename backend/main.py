@@ -1,4 +1,5 @@
 import re
+import traceback
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -146,6 +147,7 @@ def gmail_scan(request: GmailRequest):
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as exc:
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(exc))
 
 

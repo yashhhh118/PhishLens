@@ -2,17 +2,17 @@
 
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
   const [maxResults, setMaxResults] = useState(20);
-  const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [results, setResults] = useState(null);
+  const [expandedIdx, setExpandedIdx] = useState(null);
   const [error, setError] = useState(null);
-  const [expandedId, setExpandedId] = useState(null);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -20,13 +20,21 @@ export default function DashboardPage() {
     }
   }, [status, router]);
 
-  // ── Scan handler ──────────────────────────────────────────────────────
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <p className="text-gray-300 text-lg animate-pulse">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!session) return null;
+
   const handleScan = async () => {
-    setLoading(true);
+    setScanning(true);
     setError(null);
     setResults(null);
-    setExpandedId(null);
-
+    setExpandedIdx(null);
     try {
       const res = await fetch("http://localhost:8000/gmail/scan", {
         method: "POST",
@@ -36,341 +44,222 @@ export default function DashboardPage() {
           max_results: maxResults,
         }),
       });
-
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.detail || `Server error (${res.status})`);
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.detail || `Server responded with ${res.status}`);
       }
-
       const data = await res.json();
-      setResults(data.results);
+      setResults(data);
     } catch (err) {
       setError(err.message || "Something went wrong");
     } finally {
-      setLoading(false);
+      setScanning(false);
     }
   };
 
-  // ── Derived stats ─────────────────────────────────────────────────────
-  const stats = results
-    ? {
-        total: results.length,
-        safe: results.filter((r) => r.analysis?.verdict === "Safe").length,
-        suspicious: results.filter(
-          (r) => r.analysis?.verdict === "Suspicious"
-        ).length,
-        highRisk: results.filter(
-          (r) => r.analysis?.verdict === "High Risk"
-        ).length,
-      }
-    : null;
+  const emails = results?.emails ?? results?.results ?? [];
+  const summary = {
+    total: emails.length,
+    safe: emails.filter((e) => (e.analysis?.verdict ?? "").toLowerCase() === "safe").length,
+    suspicious: emails.filter((e) => (e.analysis?.verdict ?? "").toLowerCase() === "suspicious").length,
+    highRisk: emails.filter((e) => {
+      const v = (e.analysis?.verdict ?? "").toLowerCase();
+      return v === "high risk" || v === "high_risk" || v === "dangerous";
+    }).length,
+  };
 
-  // ── Loading state ─────────────────────────────────────────────────────
-  if (status === "loading") {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-950 text-white">
-        <div className="flex flex-col items-center gap-3">
-          <Spinner />
-          <p className="text-gray-400 text-sm">Loading session…</p>
-        </div>
-      </div>
-    );
-  }
+  const verdictColor = (verdict) => {
+    const v = (verdict ?? "").toLowerCase();
+    if (v === "safe") return "bg-emerald-600 text-emerald-100";
+    if (v === "suspicious") return "bg-yellow-600 text-yellow-100";
+    return "bg-red-600 text-red-100";
+  };
 
-  if (!session) return null;
+  const riskBarColor = (score) => {
+    if (score <= 30) return "bg-emerald-500";
+    if (score <= 60) return "bg-yellow-500";
+    return "bg-red-500";
+  };
 
-  // ── Render ────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      {/* ─── Top bar ─────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-30 border-b border-white/5 bg-gray-950/80 backdrop-blur-lg">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-cyan-400 text-sm font-bold">
-              PL
-            </div>
-            <span className="text-lg font-semibold tracking-tight">
-              PhishLens
-            </span>
+    <div className="min-h-screen bg-gray-950 text-gray-100">
+      {/* Header */}
+      <header className="border-b border-gray-800 bg-gray-900/80 backdrop-blur sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">
+              🛡️ PhishLens <span className="text-gray-500 font-normal text-sm">Dashboard</span>
+            </h1>
           </div>
-
           <div className="flex items-center gap-4">
-            <div className="hidden sm:block text-right">
-              <p className="text-sm font-medium leading-none">
-                {session.user?.name}
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {session.user?.email}
-              </p>
+            <div className="text-right hidden sm:block">
+              <p className="text-sm font-medium text-gray-200">{session.user?.name}</p>
+              <p className="text-xs text-gray-500">{session.user?.email}</p>
             </div>
             <button
-              onClick={() => signOut({ callbackUrl: "/login" })}
-              className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-gray-300 transition hover:bg-white/10 hover:text-white"
+              onClick={() => signOut({ callbackUrl: "/" })}
+              className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm font-medium transition-colors cursor-pointer border border-gray-700"
             >
-              Sign out
+              Sign Out
             </button>
           </div>
         </div>
       </header>
 
-      {/* ─── Main content ────────────────────────────────────────────── */}
-      <main className="mx-auto max-w-6xl px-6 py-10 space-y-10">
-        {/* ── Welcome + scan controls ─────────────────────────────────── */}
-        <section className="rounded-2xl border border-white/5 bg-white/[0.02] p-6 sm:p-8">
-          <h1 className="text-2xl font-bold tracking-tight">
-            Scan My Inbox
-          </h1>
-          <p className="mt-1 text-sm text-gray-400">
-            Select how many recent emails to scan and click{" "}
-            <span className="text-indigo-400 font-medium">Scan Now</span>.
-          </p>
-
-          <div className="mt-6 flex flex-wrap items-center gap-4">
+      <main className="max-w-6xl mx-auto px-6 py-10 space-y-10">
+        {/* Scan Controls */}
+        <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-end gap-4">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="maxResults" className="text-sm font-medium text-gray-400">
+              Emails to scan
+            </label>
             <select
+              id="maxResults"
               value={maxResults}
               onChange={(e) => setMaxResults(Number(e.target.value))}
-              disabled={loading}
-              className="rounded-lg border border-white/10 bg-gray-900 px-4 py-2.5 text-sm text-white outline-none transition focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+              className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
             >
               <option value={20}>20 emails</option>
               <option value={50}>50 emails</option>
               <option value={100}>100 emails</option>
             </select>
-
-            <button
-              onClick={handleScan}
-              disabled={loading}
-              className="relative inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:shadow-indigo-500/40 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {loading && <Spinner size="sm" />}
-              {loading ? "Scanning…" : "Scan Now"}
-            </button>
           </div>
-
-          {error && (
-            <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {error}
-            </div>
-          )}
+          <button
+            onClick={handleScan}
+            disabled={scanning}
+            className="px-6 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold transition-colors cursor-pointer"
+          >
+            {scanning ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                </svg>
+                Scanning…
+              </span>
+            ) : (
+              "🔍 Scan My Inbox"
+            )}
+          </button>
         </section>
 
-        {/* ── Loading indicator ───────────────────────────────────────── */}
-        {loading && (
-          <div className="flex flex-col items-center gap-3 py-12">
-            <Spinner size="lg" />
-            <p className="text-gray-400 text-sm animate-pulse">
-              Fetching and analysing your emails — this may take a moment…
-            </p>
+        {/* Error */}
+        {error && (
+          <div className="bg-red-900/40 border border-red-800 text-red-300 rounded-xl px-5 py-4 text-sm">
+            <strong>Error:</strong> {error}
           </div>
         )}
 
-        {/* ── Results ─────────────────────────────────────────────────── */}
-        {stats && !loading && (
-          <>
-            {/* ── Summary cards ──────────────────────────────────────── */}
-            <section className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <StatCard
-                label="Total Scanned"
-                value={stats.total}
-                color="text-white"
-                bg="from-gray-800 to-gray-900"
-              />
-              <StatCard
-                label="Safe"
-                value={stats.safe}
-                color="text-emerald-400"
-                bg="from-emerald-500/10 to-emerald-500/5"
-              />
-              <StatCard
-                label="Suspicious"
-                value={stats.suspicious}
-                color="text-amber-400"
-                bg="from-amber-500/10 to-amber-500/5"
-              />
-              <StatCard
-                label="High Risk"
-                value={stats.highRisk}
-                color="text-red-400"
-                bg="from-red-500/10 to-red-500/5"
-              />
-            </section>
+        {/* Summary Cards */}
+        {results && (
+          <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: "Total Scanned", value: summary.total, color: "text-indigo-400", border: "border-indigo-500/30" },
+              { label: "Safe", value: summary.safe, color: "text-emerald-400", border: "border-emerald-500/30" },
+              { label: "Suspicious", value: summary.suspicious, color: "text-yellow-400", border: "border-yellow-500/30" },
+              { label: "High Risk", value: summary.highRisk, color: "text-red-400", border: "border-red-500/30" },
+            ].map((card) => (
+              <div
+                key={card.label}
+                className={`bg-gray-900 border ${card.border} rounded-xl p-5 text-center`}
+              >
+                <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">{card.label}</p>
+                <p className={`text-3xl font-bold ${card.color}`}>{card.value}</p>
+              </div>
+            ))}
+          </section>
+        )}
 
-            {/* ── Email list ─────────────────────────────────────────── */}
-            <section className="space-y-3">
-              <h2 className="text-lg font-semibold tracking-tight">
-                Scanned Emails
-              </h2>
+        {/* Email List */}
+        {results && (
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold text-gray-300">Scanned Emails</h2>
+            {emails.length === 0 && (
+              <p className="text-gray-500 text-sm">No emails found.</p>
+            )}
+            {emails.map((email, idx) => {
+              const verdict = email.analysis?.verdict ?? "Unknown";
+              const score = email.analysis?.score ?? 0;
+              const isExpanded = expandedIdx === idx;
 
-              <div className="space-y-2">
-                {results.map((email) => {
-                  const isExpanded = expandedId === email.id;
-                  const v = email.analysis?.verdict ?? "Unknown";
-                  return (
-                    <div key={email.id}>
-                      {/* Row */}
-                      <button
-                        onClick={() =>
-                          setExpandedId(isExpanded ? null : email.id)
-                        }
-                        className={`w-full text-left rounded-xl border transition-all
-                          ${
-                            isExpanded
-                              ? "border-indigo-500/40 bg-white/[0.04]"
-                              : "border-white/5 bg-white/[0.02] hover:bg-white/[0.04]"
-                          }
-                          px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4`}
-                      >
-                        {/* Subject + sender */}
-                        <div className="flex-1 min-w-0">
-                          <p className="truncate text-sm font-medium">
-                            {email.subject || "(no subject)"}
-                          </p>
-                          <p className="truncate text-xs text-gray-500 mt-0.5">
-                            {email.sender}
-                          </p>
+              return (
+                <div
+                  key={idx}
+                  className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden transition-all"
+                >
+                  {/* Row */}
+                  <button
+                    onClick={() => setExpandedIdx(isExpanded ? null : idx)}
+                    className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-gray-800/60 transition-colors cursor-pointer"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{email.subject ?? "No Subject"}</p>
+                      <p className="text-xs text-gray-500 truncate">{email.sender ?? email.from ?? "Unknown sender"}</p>
+                    </div>
+
+                    {/* Risk Score Bar */}
+                    <div className="hidden sm:flex items-center gap-2 w-32 shrink-0">
+                      <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${riskBarColor(score)}`}
+                          style={{ width: `${Math.min(score, 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-gray-400 w-8 text-right">{score}%</span>
+                    </div>
+
+                    {/* Verdict Badge */}
+                    <span className={`text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap ${verdictColor(verdict)}`}>
+                      {verdict}
+                    </span>
+
+                    {/* Chevron */}
+                    <svg
+                      className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {/* Expanded Details */}
+                  {isExpanded && (
+                    <div className="border-t border-gray-800 px-5 py-4 space-y-3 bg-gray-900/50">
+                      {email.analysis?.category && (
+                        <div>
+                          <p className="text-xs uppercase tracking-wider text-gray-500 mb-0.5">Category</p>
+                          <p className="text-sm text-gray-300">{email.analysis.category}</p>
                         </div>
+                      )}
 
-                        {/* Score */}
-                        <span className="text-xs text-gray-500 tabular-nums">
-                          Score: {email.analysis?.score ?? "–"}
-                        </span>
+                      {email.analysis?.summary && (
+                        <div>
+                          <p className="text-xs uppercase tracking-wider text-gray-500 mb-0.5">Summary</p>
+                          <p className="text-sm text-gray-300">{email.analysis.summary}</p>
+                        </div>
+                      )}
 
-                        {/* Badge */}
-                        <VerdictBadge verdict={v} />
-
-                        {/* Chevron */}
-                        <svg
-                          className={`h-4 w-4 shrink-0 text-gray-500 transition-transform ${
-                            isExpanded ? "rotate-180" : ""
-                          }`}
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M19 9l-7 7-7-7"
-                          />
-                        </svg>
-                      </button>
-
-                      {/* Expanded detail */}
-                      {isExpanded && (
-                        <AnalysisDetail analysis={email.analysis} />
+                      {email.analysis?.reasons?.length > 0 && (
+                        <div>
+                          <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">Reasons</p>
+                          <ul className="space-y-1">
+                            {email.analysis.reasons.map((reason, rIdx) => (
+                              <li key={rIdx} className="text-sm text-gray-400 flex items-start gap-2">
+                                <span className="text-yellow-500 mt-0.5">⚠</span>
+                                <span>{typeof reason === "string" ? reason : reason.description ?? JSON.stringify(reason)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-            </section>
-          </>
+                  )}
+                </div>
+              );
+            })}
+          </section>
         )}
       </main>
     </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Sub-components
-// ═══════════════════════════════════════════════════════════════════════════
-
-function StatCard({ label, value, color, bg }) {
-  return (
-    <div
-      className={`rounded-xl border border-white/5 bg-gradient-to-b ${bg} p-5`}
-    >
-      <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-        {label}
-      </p>
-      <p className={`mt-1 text-3xl font-bold tabular-nums ${color}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function VerdictBadge({ verdict }) {
-  const styles = {
-    Safe: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
-    Suspicious: "bg-amber-500/15 text-amber-400 border-amber-500/20",
-    "High Risk": "bg-red-500/15 text-red-400 border-red-500/20",
-  };
-  const cls =
-    styles[verdict] || "bg-gray-500/15 text-gray-400 border-gray-500/20";
-
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${cls}`}
-    >
-      {verdict}
-    </span>
-  );
-}
-
-function AnalysisDetail({ analysis }) {
-  if (!analysis) return null;
-
-  return (
-    <div className="mt-1 rounded-xl border border-white/5 bg-white/[0.02] px-6 py-5 space-y-4 text-sm">
-      {/* Top row */}
-      <div className="flex flex-wrap items-center gap-4">
-        <div>
-          <span className="text-gray-500">Risk Score</span>{" "}
-          <span className="font-bold text-lg tabular-nums">
-            {analysis.score}
-          </span>
-          <span className="text-gray-600">/100</span>
-        </div>
-        <VerdictBadge verdict={analysis.verdict} />
-        <span className="rounded-full bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-0.5 text-xs font-medium text-indigo-400">
-          {analysis.category}
-        </span>
-      </div>
-
-      {/* Summary */}
-      <p className="text-gray-300 leading-relaxed">{analysis.summary}</p>
-
-      {/* Reasons */}
-      {analysis.reasons?.length > 0 && (
-        <div>
-          <p className="font-medium text-gray-400 mb-2">Signals detected</p>
-          <ul className="space-y-1.5">
-            {analysis.reasons.map((reason, i) => (
-              <li key={i} className="flex items-start gap-2 text-gray-400">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-400" />
-                <span>{reason}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Spinner({ size = "md" }) {
-  const dims = size === "sm" ? "h-4 w-4" : size === "lg" ? "h-8 w-8" : "h-6 w-6";
-  return (
-    <svg
-      className={`${dims} animate-spin text-indigo-400`}
-      viewBox="0 0 24 24"
-      fill="none"
-    >
-      <circle
-        className="opacity-25"
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-      />
-      <path
-        className="opacity-75"
-        fill="currentColor"
-        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-      />
-    </svg>
   );
 }
