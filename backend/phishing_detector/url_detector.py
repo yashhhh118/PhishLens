@@ -59,8 +59,6 @@ def check_urls(text: str) -> dict:
             domain = parsed.netloc.split(':')[0].lower()
         except Exception:
             domain = ""
-            
-        url_lower = url.lower()
         
         # 1. Insecure scheme (http)
         if url.startswith("http://"):

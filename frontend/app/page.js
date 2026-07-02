@@ -91,6 +91,7 @@ export default function Home() {
         <div className="hidden md:flex items-center gap-6 text-sm text-slate-400">
           <a href="#scanner" className="hover:text-white transition-colors">Scanner</a>
           <a href="#" className="hover:text-white transition-colors">About</a>
+          <a href="/login" className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold transition-all duration-200 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40">Sign In</a>
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             API Online

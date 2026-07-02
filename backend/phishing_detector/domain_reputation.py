@@ -53,12 +53,10 @@ def check_domain_reputation(text: str) -> dict:
     
     for domain in unique_domains:
         # Check suspicious TLD
-        has_suspicious_tld = False
         domain_parts = domain.split('.')
         if len(domain_parts) > 1:
             tld = "." + domain_parts[-1]
             if tld in suspicious_tlds:
-                has_suspicious_tld = True
                 score += 10
                 explanation.append(f"Suspicious TLD ({tld}) detected: {domain}")
         
